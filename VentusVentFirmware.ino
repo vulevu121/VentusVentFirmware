@@ -1,15 +1,18 @@
-#include <Servo.h> 
+#include <Adafruit_Sensor.h>
+#include <DHT.h>
+#include <DHT_U.h>
+#include <Servo.h>
 #include <SPI.h>
 #include <WiFi101.h>
-#include <dht.h>
+#include "wifi_ssid.h"
 
-#include "wifi_ssid.h" 
+#define DHTPIN     6
+#define DHTTYPE    DHT22     // DHT 22 (AM2302)
+#define VBATPIN    A7
 
-#define VBATPIN A7
-#define dataPin 6
-dht DHT; // Creats a DHT object
+DHT_Unified dht(DHTPIN, DHTTYPE);
 
-Servo myservo;  
+Servo myservo;
 
 // Control and feedback pins
 int servoPin = 10;
@@ -44,28 +47,29 @@ const unsigned long postingInterval = 10L * 1000L; // delay between updates, in 
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
-  WiFi.setPins(8,7,4,2);
+  WiFi.setPins(8, 7, 4, 2);
   WiFi.lowPowerMode();
   //Initialize serial and wait for port to open:
   Serial.begin(9600);
-//  while (!Serial) {
-//    ; // wait for serial port to connect. Needed for native USB port only
-//  }
+  //  while (!Serial) {
+  //    ; // wait for serial port to connect. Needed for native USB port only
+  //  }
 
-//  // check for the presence of the shield:
-//  if (WiFi.status() == WL_NO_SHIELD) {
-//    Serial.println("WiFi shield not present");
-//    // don't continue:
-//    while (true);
-//  }
+  //  // check for the presence of the shield:
+  //  if (WiFi.status() == WL_NO_SHIELD) {
+  //    Serial.println("WiFi shield not present");
+  //    // don't continue:
+  //    while (true);
+  //  }
+  dht.begin();
 
   connectWiFi();
-  
+
   // servo setup
   myservo.attach(servoPin);
   calibrate(myservo, feedbackPin, 0, 180);  // calibrate for the 20-160 degree range
   // you're connected now, so print out the status:
-//  printWiFiStatus();
+  //  printWiFiStatus();
   digitalWrite(LED_BUILTIN, LOW);
 }
 
@@ -79,11 +83,11 @@ void loop() {
   bool ready_to_print = false;
   String buffer_string = "";
 
-//  while (client.available()) {
-//    char c = client.read();
-//    buffer_string += c;
-//    ready_to_print = true;
-//  }
+  //  while (client.available()) {
+  //    char c = client.read();
+  //    buffer_string += c;
+  //    ready_to_print = true;
+  //  }
 
   while (client.available()) {
     buffer_string = client.readString();
@@ -92,7 +96,7 @@ void loop() {
   }
 
   if (ready_to_print && ready_to_grasp) {
-    String temp = buffer_string.substring(buffer_string.indexOf("close")+7); 
+    String temp = buffer_string.substring(buffer_string.indexOf("close") + 7);
     int target_temp = temp.toInt();
     int servo_pos = target_temp * 2;
     myservo.write(servo_pos);
@@ -110,7 +114,7 @@ void loop() {
     connectWiFi();
   }
 
-  
+
 
   // if ten seconds have passed since your last connection,
   // then connect again and send data:
@@ -127,10 +131,34 @@ void loop() {
 // this method makes a HTTP connection to the server:
 void httpRequest() {
   //Measure temp and humidity
-  int readData = DHT.read22(dataPin); // Reads the data from the sensor
-  float t = DHT.temperature; // Gets the values of the temperature
-  float h = DHT.humidity; // Gets the values of the humidity
-  float bat = readBatPercent();
+  sensors_event_t event;
+  float bat, t, h;
+  // Get temperature event and print its value.
+  dht.temperature().getEvent(&event);
+  if (isnan(event.temperature)) {
+    Serial.println(F("Error reading temperature!"));
+  }
+  else {
+//    Serial.print(F("Temperature: "));
+//    Serial.print(event.temperature);
+//    Serial.println(F(" C"));
+    t = event.temperature * 1.4 + 32;
+  }
+
+
+  // Get humidity event and print its value.
+  dht.humidity().getEvent(&event);
+  if (isnan(event.relative_humidity)) {
+    Serial.println(F("Error reading humidity!"));
+  }
+  else {
+//    Serial.print(F("Humidity: "));
+//    Serial.print(event.relative_humidity);
+//    Serial.println(F("%"));
+    h = event.relative_humidity;
+  }
+
+  bat = readBatPercent();
   String stringT = String(int(t));
   String stringH = String(int(h));
   String stringBat = String(int(bat));
@@ -138,21 +166,21 @@ void httpRequest() {
   Serial.println("hum: " + stringH);
   Serial.println("bat: " + stringBat);
 
-  
+
   // close any connection before send a new request.
   // This will free the socket on the WiFi shield
 
-  
 
-  
-  
+
+
+
   ////////////////////SET TEMP//////////////////////////////////////////
   digitalWrite(LED_BUILTIN, HIGH);
   client.stop();
 
   // if there's a successful connection:
   if (client.connect(server, 443)) {
-    client.println("GET /setTemp?roomId=Kitchen&current_temp="+stringT+" HTTP/1.1");
+    client.println("GET /setTemp?roomId=Kitchen&current_temp=" + stringT + " HTTP/1.1");
     client.println("Host: us-central1-fir-authdemo2-13925.cloudfunctions.net");
     client.println("User-Agent: ArduinoWiFi/1.1");
     client.println("Connection: close");
@@ -166,11 +194,11 @@ void httpRequest() {
     Serial.println("connection failed");
   }
 
-////////////////////SET HUMIDITY////////////////////////////////////////
+  ////////////////////SET HUMIDITY////////////////////////////////////////
   digitalWrite(LED_BUILTIN, HIGH);
   client.stop();
   if (client.connect(server, 443)) {
-    client.println("GET /setHumidity?roomId=Kitchen&current_humidity="+stringH+" HTTP/1.1");
+    client.println("GET /setHumidity?roomId=Kitchen&current_humidity=" + stringH + " HTTP/1.1");
     client.println("Host: us-central1-fir-authdemo2-13925.cloudfunctions.net");
     client.println("User-Agent: ArduinoWiFi/1.1");
     client.println("Connection: close");
@@ -186,7 +214,7 @@ void httpRequest() {
 
 
 
-////////////////////GET HUMIDITY////////////////////////////////////////
+  ////////////////////GET HUMIDITY////////////////////////////////////////
   digitalWrite(LED_BUILTIN, HIGH);
   client.stop();
   if (client.connect(server, 443)) {
@@ -204,11 +232,11 @@ void httpRequest() {
     Serial.println("connection failed");
   }
 
-////////////////////SET V_BAT////////////////////////////////////////
+  ////////////////////SET V_BAT////////////////////////////////////////
   digitalWrite(LED_BUILTIN, HIGH);
   client.stop();
   if (client.connect(server, 443)) {
-    client.println("GET /setBatteryPercent?roomId=Kitchen&battery_percent="+stringBat+" HTTP/1.1");
+    client.println("GET /setBatteryPercent?roomId=Kitchen&battery_percent=" + stringBat + " HTTP/1.1");
     client.println("Host: us-central1-fir-authdemo2-13925.cloudfunctions.net");
     client.println("User-Agent: ArduinoWiFi/1.1");
     client.println("Connection: close");
@@ -252,15 +280,15 @@ void connectWiFi() {
     status = WiFi.begin(ssid, pass);
 
     // wait for good signal strength
-//    long rssi = 0;
+    //    long rssi = 0;
 
-//    while (rssi == 0) {
-//      rssi = WiFi.RSSI();
-//      Serial.print("RSSI: ");
-//      Serial.print(rssi);
-//      Serial.println(" dBm");
-//      delay(1000);
-//    }
+    //    while (rssi == 0) {
+    //      rssi = WiFi.RSSI();
+    //      Serial.print("RSSI: ");
+    //      Serial.print(rssi);
+    //      Serial.println(" dBm");
+    //      delay(1000);
+    //    }
 
     delay(5000);
   }
@@ -291,7 +319,7 @@ void calibrate(Servo servo, int analogPin, int minPos, int maxPos)
   minDegrees = minPos;
   delay(2000); // make sure it has time to get there and settle
   minFeedback = analogRead(analogPin);
-  
+
   // Move to the maximum position and record the feedback value
   servo.write(maxPos);
   maxDegrees = maxPos;
@@ -315,8 +343,8 @@ float readBatPercent() {
   measuredvbat *= 2;    // we divided by 2, so multiply back
   measuredvbat *= 3.3;  // Multiply by 3.3V, our reference voltage
 
-  
-  measuredvbat = (measuredvbat - 2.2)*100.0/2.1;
+
+  measuredvbat = (measuredvbat - 2.2) * 100.0 / 2.1;
   if (measuredvbat > 100.0)
     measuredvbat = 100.0;
   else if (measuredvbat < 0.0)
